@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=FakeFiller Mock Generator
+GenericName=Mock Data Generator & Form Filler
+Comment=Instant dummy data generator and form filler for Linux
+Exec=/home/adham/.local/bin/fakefiller
+Icon=accessories-dictionary
+Terminal=false
+Type=Application
+Categories=Development;Utility;

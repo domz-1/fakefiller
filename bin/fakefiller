@@ -1,0 +1,421 @@
+#!/usr/bin/env python3
+"""
+FakeFiller Linux - Instant Mock Data Generator & Form Filler
+Author: Adham (@domz-1)
+License: MIT
+"""
+
+import sys
+import os
+import random
+import uuid
+import datetime
+import string
+import hashlib
+import json
+import time
+import subprocess
+
+os.environ["DISPLAY"] = os.environ.get("DISPLAY", ":0")
+
+import gi
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gtk, Gdk, GLib, Pango
+
+SOUND_DONE = "/usr/share/sounds/freedesktop/stereo/complete.oga"
+
+# --- MOCK DATA DATASETS ---
+FIRST_NAMES_EN = ["Alex", "Sarah", "David", "Emma", "Michael", "Olivia", "James", "Sophia", "Daniel", "Emily", "Liam", "Ava", "Noah", "Isabella", "Lucas", "Mia"]
+LAST_NAMES_EN = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Miller", "Davis", "Wilson", "Taylor", "Anderson", "Thomas", "Jackson", "White", "Harris", "Martin"]
+
+FIRST_NAMES_AR = ["أحمد", "محمد", "محمود", "عمر", "سارة", "نور", "مريم", "يوسف", "كريم", "علي", "طارق", "خالد", "ياسمين", "فاطمة", "حسين", "زياد", "هدى", "مصطفى"]
+LAST_NAMES_AR = ["إبراهيم", "حسان", "السيد", "محمود", "عبد الله", "الشريف", "منصور", "خليل", "فاروق", "سليمان", "النجار", "الحداد", "المهدي", "عثمان", "رضا"]
+
+JOB_TITLES = ["Software Engineer", "Product Manager", "UI/UX Designer", "DevOps Engineer", "Data Scientist", "Frontend Developer", "Backend Developer", "Full Stack Developer", "QA Engineer", "Security Analyst"]
+COMPANIES = ["Acme Corp", "TechNova", "Starlight Media", "CloudScale Labs", "Apex Dynamics", "Quantum Wave", "CyberPulse", "HyperFlow Inc", "Nexus Innovations"]
+
+CITIES_EG = ["Cairo", "Alexandria", "Giza", "Mansoura", "Tanta", "Aswan", "Luxor", "Hurghada", "Port Said"]
+STREETS_EN = ["Main Street", "Oak Avenue", "Cedar Road", "Park Lane", "Sunset Boulevard", "El-Tahrir Street", "El-Galaa Street", "Corniche Road"]
+
+LOREM_WORDS = ["lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit", "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et", "dolore", "magna", "aliqua", "enim", "ad", "minim", "veniam", "quis", "nostrud", "exercitation", "ullamco", "laboris", "nisi", "ut", "aliquip", "ex", "ea", "commodo", "consequat"]
+
+# --- GENERATORS ---
+def gen_uuid(): return str(uuid.uuid4())
+def gen_nanoid(): return ''.join(random.choices(string.ascii_letters + string.digits + "_-", k=21))
+def gen_mongo_id(): return ''.join(random.choices("0123456789abcdef", k=24))
+
+def gen_name_en(): return f"{random.choice(FIRST_NAMES_EN)} {random.choice(LAST_NAMES_EN)}"
+def gen_name_ar(): return f"{random.choice(FIRST_NAMES_AR)} {random.choice(LAST_NAMES_AR)}"
+
+def gen_email():
+    fname = random.choice(FIRST_NAMES_EN).lower()
+    lname = random.choice(LAST_NAMES_EN).lower()
+    num = random.randint(10, 999)
+    domain = random.choice(["gmail.com", "example.com", "test.dev", "company.org", "outlook.com"])
+    return f"{fname}.{lname}{num}@{domain}"
+
+def gen_username():
+    fname = random.choice(FIRST_NAMES_EN).lower()
+    return f"{fname}_{random.randint(100, 9999)}"
+
+def gen_phone_eg():
+    prefix = random.choice(["10", "11", "12", "15"])
+    return f"+20 {prefix} {random.randint(1000, 9999)} {random.randint(1000, 9999)}"
+
+def gen_phone_sa():
+    return f"+966 5{random.randint(10000000, 99999999)}"
+
+def gen_phone_us():
+    return f"+1 ({random.randint(200, 999)}) {random.randint(200, 999)}-{random.randint(1000, 9999)}"
+
+def gen_password():
+    chars = string.ascii_letters + string.digits + "!@#$%^&*()_+"
+    return ''.join(random.choices(chars, k=16))
+
+def gen_egyptian_national_id():
+    # 14 digits: [Century: 2/3][YYMMDD][Gov: 01-35][Serial: 4 digits][Check: 1 digit]
+    century = random.choice(["2", "3"])
+    year = f"{random.randint(70, 99):02d}" if century == "2" else f"{random.randint(0, 8):02d}"
+    month = f"{random.randint(1, 12):02d}"
+    day = f"{random.randint(1, 28):02d}"
+    gov = f"{random.randint(1, 27):02d}"
+    serial = f"{random.randint(1000, 9999):04d}"
+    check = str(random.randint(1, 9))
+    return f"{century}{year}{month}{day}{gov}{serial}{check}"
+
+def gen_credit_card(brand="visa"):
+    if brand == "visa":
+        prefix = "4532"
+    elif brand == "mastercard":
+        prefix = "5425"
+    else:
+        prefix = "4000"
+    
+    # 16 digits
+    rest = ''.join(random.choices(string.digits, k=11))
+    raw = prefix + rest
+    
+    # Luhn checksum
+    digits = [int(d) for d in raw]
+    checksum = 0
+    for i, d in enumerate(reversed(digits)):
+        if i % 2 == 0:
+            val = d * 2
+            checksum += (val - 9 if val > 9 else val)
+        else:
+            checksum += d
+    check_digit = (10 - (checksum % 10)) % 10
+    card_num = raw + str(check_digit)
+    
+    exp_month = f"{random.randint(1, 12):02d}"
+    exp_year = str(datetime.datetime.now().year + random.randint(1, 5))[2:]
+    cvv = f"{random.randint(100, 999):03d}"
+    return f"{card_num} | Exp: {exp_month}/{exp_year} | CVV: {cvv}"
+
+def gen_date_iso():
+    return datetime.datetime.now().isoformat() + "Z"
+
+def gen_timestamp():
+    return str(int(datetime.datetime.now().timestamp()))
+
+def gen_ipv4():
+    return f"{random.randint(10, 220)}.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+
+def gen_hex_color():
+    return f"#{random.randint(0, 0xFFFFFF):06x}".upper()
+
+def gen_lorem(count=15):
+    words = [random.choice(LOREM_WORDS) for _ in range(count)]
+    text = " ".join(words)
+    return text.capitalize() + "."
+
+def gen_mock_json():
+    obj = {
+        "id": gen_uuid(),
+        "name": gen_name_en(),
+        "email": gen_email(),
+        "phone": gen_phone_eg(),
+        "role": random.choice(JOB_TITLES),
+        "company": random.choice(COMPANIES),
+        "isActive": True,
+        "createdAt": gen_date_iso()
+    }
+    return json.dumps(obj, indent=2)
+
+def convert_to_markdown_table(text):
+    lines = [l.strip() for l in text.strip().splitlines() if l.strip()]
+    if not lines:
+        return ""
+    # Detect delimiter: tab, comma, or pipe
+    delimiter = "\t" if "\t" in lines[0] else ("," if "," in lines[0] else "|")
+    rows = []
+    for l in lines:
+        if delimiter == "|":
+            cells = [c.strip() for c in l.split("|") if c.strip()]
+        else:
+            cells = [c.strip().strip('"') for c in l.split(delimiter)]
+        if cells:
+            rows.append(cells)
+    
+    if not rows: return ""
+    max_cols = max(len(r) for r in rows)
+    # Normalize lengths
+    for r in rows:
+        while len(r) < max_cols: r.append("")
+        
+    out = []
+    header = "| " + " | ".join(rows[0]) + " |"
+    divider = "| " + " | ".join(["---"] * max_cols) + " |"
+    out.append(header)
+    out.append(divider)
+    for r in rows[1:]:
+        out.append("| " + " | ".join(r) + " |")
+    return "\n".join(out)
+
+# --- ITEMS CATALOG ---
+CATALOG = [
+    ("📧 Email Address", "Random valid test email", gen_email),
+    ("👤 Full Name (English)", "Random English full name", gen_name_en),
+    ("👤 الاسم بالكامل (عربي)", "اسم مصري / عربي عشوائي", gen_name_ar),
+    ("📱 Phone (Egypt +20)", "Egyptian mobile number", gen_phone_eg),
+    ("📱 Phone (Saudi +966)", "Saudi mobile number", gen_phone_sa),
+    ("📱 Phone (US +1)", "US formatted phone number", gen_phone_us),
+    ("🆔 UUID v4", "Standard unique identifier", gen_uuid),
+    ("🪪 Egyptian National ID", "Valid 14-digit National ID format", gen_egyptian_national_id),
+    ("💳 Fake Credit Card (Visa)", "Card number + Expiry + CVV", lambda: gen_credit_card("visa")),
+    ("💳 Fake Credit Card (Mastercard)", "Mastercard number + CVV", lambda: gen_credit_card("mastercard")),
+    ("🔑 Random Strong Password", "16 chars with symbols", gen_password),
+    ("🌐 Username", "Clean username format", gen_username),
+    ("🏢 Company Name", "Random tech / business name", lambda: random.choice(COMPANIES)),
+    ("💼 Job Title", "Professional job title", lambda: random.choice(JOB_TITLES)),
+    ("📍 City & Address", "Random address", lambda: f"{random.randint(10, 999)} {random.choice(STREETS_EN)}, {random.choice(CITIES_EG)}"),
+    ("🌐 IPv4 Address", "Random valid IPv4 address", gen_ipv4),
+    ("🎨 Hex Color Code", "Random 6-digit Hex Color", gen_hex_color),
+    ("📅 ISO 8601 DateTime", "Current UTC ISO timestamp", gen_date_iso),
+    ("⏱️ Unix Timestamp", "Current epoch timestamp", gen_timestamp),
+    ("📝 Lorem Ipsum (Sentence)", "1 sentence placeholder text", lambda: gen_lorem(12)),
+    ("📝 Lorem Ipsum (Paragraph)", "Full paragraph placeholder", lambda: gen_lorem(45)),
+    ("📦 JSON User Mock Object", "Complete JSON user payload", gen_mock_json),
+    ("📊 Convert Clipboard to Markdown Table", "Convert CSV/TSV table", None)
+]
+
+def paste_value(val):
+    try:
+        p = subprocess.Popen(["xclip", "-selection", "clipboard"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p.communicate(input=val.encode("utf-8"))
+    except Exception: pass
+    try:
+        p = subprocess.Popen(["xclip", "-selection", "primary"], stdin=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        p.communicate(input=val.encode("utf-8"))
+    except Exception: pass
+
+    subprocess.run(["copyq", "copy", val], stderr=subprocess.DEVNULL)
+    time.sleep(0.08)
+    subprocess.run(["copyq", "paste"], stderr=subprocess.DEVNULL)
+
+    if os.path.exists(SOUND_DONE):
+        try: subprocess.Popen(["paplay", SOUND_DONE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception: pass
+        
+    snippet = val[:50] + "..." if len(val) > 50 else val
+    subprocess.run(["notify-send", "-u", "low", "-i", "emblem-default", "✨ FakeFiller Pasted!", snippet])
+
+class FakeFillerWindow(Gtk.Window):
+    def __init__(self):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+        self.set_title("FakeFiller - Mock Data")
+        self.set_decorated(False)
+        self.set_keep_above(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_default_size(520, 440)
+        self.set_position(Gtk.WindowPosition.CENTER)
+
+        # CSS Styling
+        css = b"""
+        window {
+            background-color: #18181b;
+            border-radius: 16px;
+            border: 2px solid #3b82f6;
+            box-shadow: 0 15px 35px rgba(0, 0, 0, 0.7);
+        }
+        entry {
+            background-color: #27272a;
+            color: #f8fafc;
+            border: 1px solid #3f3f46;
+            border-radius: 10px;
+            font-size: 15px;
+            padding: 10px 14px;
+        }
+        entry:focus {
+            border-color: #3b82f6;
+        }
+        treeview {
+            background-color: #18181b;
+            color: #e2e8f0;
+            font-size: 14px;
+        }
+        treeview:selected {
+            background-color: #2563eb;
+            color: white;
+            border-radius: 8px;
+        }
+        label#hint {
+            color: #94a3b8;
+            font-size: 12px;
+        }
+        """
+        style_provider = Gtk.CssProvider()
+        style_provider.load_from_data(css)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(),
+            style_provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        vbox.set_margin_top(14)
+        vbox.set_margin_bottom(14)
+        vbox.set_margin_start(16)
+        vbox.set_margin_end(16)
+
+        # Search Entry
+        self.search_entry = Gtk.Entry()
+        self.search_entry.set_placeholder_text("🔍 Search mock data (e.g. email, arabic, phone, uuid, table)...")
+        self.search_entry.connect("changed", self.on_search_changed)
+        self.search_entry.connect("key-press-event", self.on_entry_key)
+        vbox.pack_start(self.search_entry, False, False, 0)
+
+        # TreeView List
+        self.liststore = Gtk.ListStore(str, str, int) # Title, Subtitle, Original Index
+        self.filter = self.liststore.filter_new()
+        
+        self.treeview = Gtk.TreeView(model=self.filter)
+        self.treeview.set_headers_visible(False)
+        self.treeview.connect("row-activated", self.on_row_activated)
+
+        renderer_title = Gtk.CellRendererText()
+        renderer_title.set_property("font", "Sans Bold 11")
+        col_title = Gtk.TreeViewColumn("Title", renderer_title, text=0)
+        self.treeview.append_column(col_title)
+
+        renderer_sub = Gtk.CellRendererText()
+        renderer_sub.set_property("foreground", "#94a3b8")
+        renderer_sub.set_property("font", "Sans 10")
+        col_sub = Gtk.TreeViewColumn("Subtitle", renderer_sub, text=1)
+        self.treeview.append_column(col_sub)
+
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(self.treeview)
+        vbox.pack_start(scroll, True, True, 0)
+
+        # Bottom Hint
+        hint = Gtk.Label(label="[↑/↓] Navigate  •  [Enter] Insert & Paste  •  [Esc] Close")
+        hint.set_name("hint")
+        vbox.pack_start(hint, False, False, 0)
+
+        self.add(vbox)
+        self.populate_items()
+        self.connect("key-press-event", self.on_global_key)
+        self.show_all()
+
+    def populate_items(self, query=""):
+        self.liststore.clear()
+        q = query.lower().strip()
+        for idx, (title, sub, _) in enumerate(CATALOG):
+            if not q or q in title.lower() or q in sub.lower():
+                self.liststore.append([title, sub, idx])
+        
+        # Select first row
+        first_iter = self.liststore.get_iter_first()
+        if first_iter:
+            self.treeview.get_selection().select_iter(first_iter)
+
+    def on_search_changed(self, entry):
+        self.populate_items(entry.get_text())
+
+    def on_entry_key(self, entry, event):
+        if event.keyval == Gdk.KEY_Down:
+            self.treeview.grab_focus()
+            return True
+        elif event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.select_current()
+            return True
+        elif event.keyval == Gdk.KEY_Escape:
+            self.destroy()
+            Gtk.main_quit()
+            return True
+        return False
+
+    def on_global_key(self, widget, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.destroy()
+            Gtk.main_quit()
+            return True
+        return False
+
+    def select_current(self):
+        selection = self.treeview.get_selection()
+        model, treeiter = selection.get_selected()
+        if treeiter:
+            idx = model[treeiter][2]
+            self.apply_index(idx)
+
+    def on_row_activated(self, treeview, path, column):
+        model = treeview.get_model()
+        treeiter = model.get_iter(path)
+        if treeiter:
+            idx = model[treeiter][2]
+            self.apply_index(idx)
+
+    def apply_index(self, idx):
+        self.destroy()
+        item = CATALOG[idx]
+        title, _, func = item
+        
+        if func is None: # Markdown Table
+            try:
+                res = subprocess.run(["xclip", "-o", "-selection", "clipboard"], capture_output=True, text=True)
+                table = convert_to_markdown_table(res.stdout)
+                if table:
+                    paste_value(table)
+                else:
+                    subprocess.run(["notify-send", "-u", "low", "FakeFiller", "⚠️ Clipboard did not contain tabular CSV/TSV data."])
+            except Exception: pass
+        else:
+            val = func()
+            paste_value(str(val))
+            
+        Gtk.main_quit()
+
+def main():
+    if len(sys.argv) > 1:
+        cmd = sys.argv[1].lower()
+        if cmd in ["email", "mail"]: paste_value(gen_email())
+        elif cmd in ["name", "en-name"]: paste_value(gen_name_en())
+        elif cmd in ["ar-name", "ar", "arabic"]: paste_value(gen_name_ar())
+        elif cmd in ["phone", "phone-eg"]: paste_value(gen_phone_eg())
+        elif cmd in ["phone-sa"]: paste_value(gen_phone_sa())
+        elif cmd in ["phone-us"]: paste_value(gen_phone_us())
+        elif cmd in ["uuid", "id"]: paste_value(gen_uuid())
+        elif cmd in ["national-id", "nid"]: paste_value(gen_egyptian_national_id())
+        elif cmd in ["card", "visa"]: paste_value(gen_credit_card("visa"))
+        elif cmd in ["mastercard", "mc"]: paste_value(gen_credit_card("mastercard"))
+        elif cmd in ["pass", "password"]: paste_value(gen_password())
+        elif cmd in ["lorem"]: paste_value(gen_lorem(20))
+        elif cmd in ["json"]: paste_value(gen_mock_json())
+        elif cmd in ["table"]:
+            res = subprocess.run(["xclip", "-o", "-selection", "clipboard"], capture_output=True, text=True)
+            t = convert_to_markdown_table(res.stdout)
+            if t: paste_value(t)
+        else:
+            print(f"Unknown mock type: {cmd}. Available: email, name, ar-name, phone, uuid, card, lorem, json, table")
+        return
+
+    win = FakeFillerWindow()
+    Gtk.main()
+
+if __name__ == "__main__":
+    main()
